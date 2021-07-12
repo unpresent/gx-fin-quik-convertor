@@ -1,0 +1,35 @@
+# Логирование
+logging:
+  level:
+    org.springframework: info
+    org.springframework.orm: info
+    org.springframework.web: info
+
+# Настройки Сервера
+server:
+  port: 7003
+
+# translator
+translator:
+  wait_on_stop_ms: 1000
+  wait_on_restarts_ms: 20000
+  min_time_per_iteration_ms: 50
+  interval_mandatory_read_state_ms: 5000
+  timeout_life_ms: 10000
+
+#quik
+quik:
+  pipe_name: C-QUIK_VTB-
+  buffer_size: 32768 # 32 * 1024
+  attempts_on_connect: 20
+  pause_on_connect_ms: 3000
+
+#kafka
+kafka:
+  server: localhost:9092
+  group_id: quik-group
+  income_topic:
+    all_trades: quikProviderAllTrades
+    deals: quikProviderDeals
+    orders: quikProviderOrders
+    securities: quikProviderSecurities
