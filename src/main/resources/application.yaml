@@ -1,3 +1,51 @@
+service:
+  name: quik-2-converter
+  standard-settings-controller.enabled: true
+  simple-worker:
+    enabled: true
+    name: simple-worker
+    wait-on-stop-ms: 5000
+    wait-on-restart-ms: 20000
+    min-time-per-iteration-ms: 3000
+    timeout-runner-life-ms: 60000
+    print-statistics-every-ms: 1000
+  kafka:
+    server: localhost:9092
+    income-topics:
+      standard-loader.enabled: true
+      standard-offsets-controller.enabled: true
+    outcome-topics:
+      standard-uploader.enabled: true
+  redis:
+    income-collections:
+      standard-loader.enabled: true
+  offsets-controller:
+    type: file
+    file-storage: offets.data
+  messages:
+    standard-queue:
+      enabled: true
+      name: messages-queue
+      max-queue-size: 5000
+      print-statistics-every-ms: 1000
+      priorities-count: 4
+    standard-executor:
+      enabled: true
+      name: messages-executor
+      wait-on-stop-ms: 5000
+      wait-on-restart-ms: 20000
+      min-time-per-iteration-ms: 1000
+      timeout-runner-life-ms: 60000
+      print-statistics-every-ms: 1000
+  channels-api:
+    quik-provider-streams:
+      securities-v1.enabled: true
+      orders-v1.enabled: true
+      deals-v1.enabled: true
+      all-trades-v1.enabled: true
+    quik-provider-snapshots:
+      securities-v1.enabled: true
+
 # Логирование
 logging:
   level:
@@ -7,29 +55,22 @@ logging:
 
 # Настройки Сервера
 server:
-  port: 7003
+  port: 7103
 
-# translator
-translator:
-  wait_on_stop_ms: 1000
-  wait_on_restarts_ms: 20000
-  min_time_per_iteration_ms: 50
-  interval_mandatory_read_state_ms: 5000
-  timeout_life_ms: 10000
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
 
-#quik
-quik:
-  pipe_name: C-QUIK_VTB-
-  buffer_size: 32768 # 32 * 1024
-  attempts_on_connect: 20
-  pause_on_connect_ms: 3000
-
-#kafka
-kafka:
-  server: localhost:9092
-  group_id: quik-group
-  income_topic:
-    all_trades: quikProviderAllTrades
-    deals: quikProviderDeals
-    orders: quikProviderOrders
-    securities: quikProviderSecurities
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    distribution:
+      percentiles-histogram:
+        "[http.server.requests]": true

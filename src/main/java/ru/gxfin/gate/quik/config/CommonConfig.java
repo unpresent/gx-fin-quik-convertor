@@ -2,44 +2,47 @@ package ru.gxfin.gate.quik.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import lombok.SneakyThrows;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationContext;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import ru.gxfin.gate.quik.api.TranslatorLifeController;
-import ru.gxfin.gate.quik.api.TranslatorSettingsController;
-import ru.gxfin.gate.quik.connector.QuikConnector;
-import ru.gxfin.gate.quik.translator.QuikTranslator;
-import ru.gxfin.gate.quik.translator.QuikTranslatorLifeController;
-import ru.gxfin.gate.quik.translator.QuikTranslatorSettingsController;
+import org.springframework.kafka.core.KafkaAdmin;
+import ru.gxfin.gate.quik.converter.QuikConverter;
 
+import java.util.HashMap;
+
+// @EnableConfigurationProperties({ConfigurationPropertiesServiceKafka.class, ConfigurationPropertiesServiceRedis.class})
 public class CommonConfig {
+    // -----------------------------------------------------------------------------------------------------------------
+    // <editor-fold desc="Common">
+    @Value("${service.name}")
+    private String serviceName;
+
     @Bean
-    public ObjectMapper objectMapper() {
+    protected ObjectMapper objectMapper() {
         return new ObjectMapper()
                 .registerModule(new JavaTimeModule());
     }
 
-    @SneakyThrows
+    // </editor-fold>
+    // -----------------------------------------------------------------------------------------------------------------
+    // <editor-fold desc="DbAdapter & Settings">
     @Bean
-    @Autowired
-    public QuikTranslatorSettingsController quikTranslatorSettings(ApplicationContext context) {
-        return new QuikTranslatorSettingsController(context);
+    protected QuikConverter dbAdapter() {
+        return new QuikConverter(serviceName);
     }
+    // </editor-fold>
+    // -----------------------------------------------------------------------------------------------------------------
+    // <editor-fold desc="Kafka Common">
+    @Value(value = "${service.kafka.server}")
+    private String kafkaServer;
 
     @Bean
-    @Autowired
-    public QuikConnector connector(TranslatorSettingsController settings) {
-        return new QuikConnector(settings.getQuikPipeName(), settings.getBufferSize());
+    protected KafkaAdmin kafkaAdmin() {
+        final var configs = new HashMap<String, Object>();
+        configs.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaServer);
+        return new KafkaAdmin(configs);
     }
-
-    @Bean
-    public QuikTranslator translator() {
-        return new QuikTranslator();
-    }
-
-    @Bean
-    public TranslatorLifeController translatorLifeController() {
-        return new QuikTranslatorLifeController();
-    }
+    // </editor-fold>
+    // -----------------------------------------------------------------------------------------------------------------
 }

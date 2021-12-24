@@ -2,7 +2,8 @@ package ru.gxfin.gate.quik;
 
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
-import ru.gxfin.gate.quik.events.TranslatorStartEvent;
+import ru.gx.core.messaging.DoStartStandardMessagesExecutorEvent;
+import ru.gx.core.simpleworker.DoStartSimpleWorkerEvent;
 
 @SpringBootApplication
 public class Application {
@@ -10,6 +11,7 @@ public class Application {
         final var context = new SpringApplicationBuilder(Application.class)
                 // .web(WebApplicationType.NONE)
                 .run(args);
-        context.publishEvent(new TranslatorStartEvent("Application"));
+        DoStartStandardMessagesExecutorEvent.publish(context, context);
+        DoStartSimpleWorkerEvent.publish(context, context);
     }
 }
