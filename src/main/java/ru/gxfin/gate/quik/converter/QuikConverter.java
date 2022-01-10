@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.NotNull;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
 import ru.gx.core.channels.ChannelDirection;
@@ -21,9 +22,14 @@ import ru.gx.core.simpleworker.SimpleWorkerOnStartingExecuteEvent;
 import ru.gx.core.simpleworker.SimpleWorkerOnStoppingExecuteEvent;
 import ru.gx.fin.common.fics.channels.FicsSnapshotCurrencyDataPublishChannelApiV1;
 import ru.gx.fin.common.fics.messages.FicsSnapshotCurrencyDataPublish;
+import ru.gx.fin.common.fics.messages.FicsSnapshotDerivativeDataPublish;
+import ru.gx.fin.common.fics.messages.FicsSnapshotSecurityDataPublish;
+import ru.gx.fin.common.fics.out.AbstractInstrument;
+import ru.gx.fin.gate.quik.provider.messages.QuikProviderSnapshotSecurityDataPublish;
 import ru.gx.fin.gate.quik.provider.messages.QuikProviderStreamAllTradesPackageDataPublish;
 import ru.gx.fin.gate.quik.provider.messages.QuikProviderStreamDealsPackageDataPublish;
 import ru.gx.fin.gate.quik.provider.messages.QuikProviderStreamOrdersPackageDataPublish;
+import ru.gx.fin.gate.quik.provider.out.QuikSecurity;
 import ru.gx.fin.md.channels.MdStreamDealDataPublishChannelApiV1;
 import ru.gx.fin.md.channels.MdStreamOrderDataPublishChannelApiV1;
 import ru.gx.fin.md.channels.MdStreamTradeDataPublishChannelApiV1;
@@ -37,6 +43,9 @@ import ru.gxfin.gate.quik.config.RedisIncomeCollectionsConfiguration;
 
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 
 import static lombok.AccessLevel.PROTECTED;
 
@@ -44,7 +53,11 @@ import static lombok.AccessLevel.PROTECTED;
 public class QuikConverter {
     // -----------------------------------------------------------------------------------------------------------------
     // <editor-fold desc="Fields">
+    @Getter(PROTECTED)
     private final String serviceName;
+
+    @Getter(PROTECTED)
+    private final String providerCode;
 
     @Getter(PROTECTED)
     @Setter(value = PROTECTED, onMethod_ = @Autowired)
@@ -101,13 +114,17 @@ public class QuikConverter {
     @Getter(PROTECTED)
     @Setter(value = PROTECTED, onMethod_ = @Autowired)
     private DefaultMessagesFactory messagesFactory;
+
+    private final Map<String, QuikSecurity> quikInstrumentsIndex = new HashMap<>();
+    private final Map<String, AbstractInstrument> instrumentsIndex = new HashMap<>();
     // </editor-fold>
     // -----------------------------------------------------------------------------------------------------------------
     // <editor-fold desc="Initialization">
 
-    public QuikConverter(String serviceName) {
+    public QuikConverter(@NotNull final String serviceName, @NotNull final String providerCode) {
         super();
         this.serviceName = serviceName;
+        this.providerCode = providerCode;
     }
 
     // </editor-fold>
@@ -119,7 +136,6 @@ public class QuikConverter {
      *
      * @param event Объект-событие с параметрами.
      */
-    @SneakyThrows(SQLException.class)
     @SuppressWarnings("unused")
     @EventListener(SimpleWorkerOnStartingExecuteEvent.class)
     public void startingExecute(SimpleWorkerOnStartingExecuteEvent event) {
@@ -333,11 +349,9 @@ public class QuikConverter {
         }
     }
 
-
     /**
      * 1) Получение {@link ru.gx.fin.common.fics.out.Currency}<br/>
-     * 2) (?)Конвертирование в какие-то внутренние структуры(?)<br/>
-     * 3) Сохранение в памяти для дальнейшего использования при обработке потоковых данных.<br/>
+     * 2) Сохранение в памяти для дальнейшего использования при обработке потоковых данных.<br/>
      *
      * @param message Сообщение с {@link ru.gx.fin.common.fics.out.Currency}.
      */
@@ -346,11 +360,79 @@ public class QuikConverter {
     public void processFicsCurrency(FicsSnapshotCurrencyDataPublish message) {
         log.debug("Starting processFicsCurrency()");
         try {
-            final var souorceObject = message.getBody().getDataObject();
-            // TODO: Организация данных в памяти.
+            final var sourceObject = message.getBody().getDataObject();
+            sourceObject.getCodes()
+                    .stream()
+                    .filter(c -> this.providerCode.equals(c.getProvider()))
+                    .findFirst()
+                    .ifPresent(instrumentCode -> this.instrumentsIndex.put(instrumentCode.getCode(), sourceObject));
         } finally {
             log.debug("Finished processFicsCurrency()");
         }
+    }
+
+    /**
+     * 1) Получение {@link ru.gx.fin.common.fics.out.Security}<br/>
+     * 2) Сохранение в памяти для дальнейшего использования при обработке потоковых данных.<br/>
+     *
+     * @param message Сообщение с {@link ru.gx.fin.common.fics.out.Security}.
+     */
+    @SneakyThrows({Exception.class})
+    @EventListener(FicsSnapshotSecurityDataPublish.class)
+    public void processFicsSecurity(FicsSnapshotSecurityDataPublish message) {
+        log.debug("Starting processFicsSecurity()");
+        try {
+            final var sourceObject = message.getBody().getDataObject();
+            sourceObject.getCodes()
+                    .stream()
+                    .filter(c -> this.providerCode.equals(c.getProvider()))
+                    .findFirst()
+                    .ifPresent(instrumentCode -> this.instrumentsIndex.put(instrumentCode.getCode(), sourceObject));
+        } finally {
+            log.debug("Finished processFicsSecurity()");
+        }
+    }
+
+    /**
+     * 1) Получение {@link ru.gx.fin.common.fics.out.Security}<br/>
+     * 2) Сохранение в памяти для дальнейшего использования при обработке потоковых данных.<br/>
+     *
+     * @param message Сообщение с {@link ru.gx.fin.common.fics.out.Security}.
+     */
+    @SneakyThrows({Exception.class})
+    @EventListener(FicsSnapshotDerivativeDataPublish.class)
+    public void processFicsDerivative(FicsSnapshotDerivativeDataPublish message) {
+        log.debug("Starting processFicsDerivative()");
+        try {
+            final var sourceObject = message.getBody().getDataObject();
+            sourceObject.getCodes()
+                    .stream()
+                    .filter(c -> this.providerCode.equals(c.getProvider()))
+                    .findFirst()
+                    .ifPresent(instrumentCode -> this.instrumentsIndex.put(instrumentCode.getCode(), sourceObject));
+        } finally {
+            log.debug("Finished processFicsDerivative()");
+        }
+    }
+    /**
+     * 1) Получение {@link QuikSecurity}<br/>
+     * 2) Сохранение в памяти для дальнейшего использования при обработке потоковых данных.<br/>
+     *
+     * @param message Сообщение с {@link ru.gx.fin.common.fics.out.Currency}.
+     */
+    @SneakyThrows({Exception.class})
+    @EventListener(QuikProviderSnapshotSecurityDataPublish.class)
+    public void processSnapshotQuikSecurity(QuikProviderSnapshotSecurityDataPublish message) {
+        log.debug("Starting processSnapshotQuikSecurity()");
+        try {
+            final var sourceObject = message.getBody().getDataObject();
+            // TODO: Организация данных в памяти.
+            this.quikInstrumentsIndex.put(sourceObject.getId(), sourceObject);
+        } finally {
+            log.debug("Finished processSnapshotQuikSecurity()");
+        }
+
+        // TODO: Что делать с обновлением ?
     }
     // </editor-fold>
     // -----------------------------------------------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 service:
   name: quik-2-converter
+  provider-code: QUIK:VTB
   standard-settings-controller.enabled: true
   simple-worker:
     enabled: true
@@ -45,6 +46,14 @@ service:
       all-trades-v1.enabled: true
     quik-provider-snapshots:
       securities-v1.enabled: true
+    fics-snapshots:
+      securities-v1.enabled: true
+      currencies-v1.enabled: true
+      derivatives-v1.enabled: true
+    md-streams:
+      md-trades-v1.enabled: true
+      md-orders-v1.enabled: true
+      md-deals-v1.enabled: true
 
 # Логирование
 logging:

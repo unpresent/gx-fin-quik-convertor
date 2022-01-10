@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import ru.gx.core.channels.IncomeDataProcessType;
 import ru.gx.core.redis.IncomeCollectionSortMode;
 import ru.gx.core.redis.load.AbstractRedisIncomeCollectionsConfiguration;
+import ru.gx.core.redis.load.RedisIncomeCollectionLoadingDescriptor;
 import ru.gx.core.redis.upload.RedisOutcomeCollectionUploadingDescriptor;
 import ru.gx.fin.common.fics.channels.FicsSnapshotCurrencyDataPublishChannelApiV1;
 import ru.gx.fin.common.fics.channels.FicsSnapshotDerivativeDataPublishChannelApiV1;
@@ -46,19 +47,19 @@ public class RedisIncomeCollectionsConfiguration extends AbstractRedisIncomeColl
                 .setProcessType(IncomeDataProcessType.SendToMessagesQueue);
 
         this
-                .newDescriptor(this.currencyDataPublishChannelApiV1, RedisOutcomeCollectionUploadingDescriptor.class)
+                .newDescriptor(this.currencyDataPublishChannelApiV1, RedisIncomeCollectionLoadingDescriptor.class)
                 .setPriority(0)
                 .init();
         this
-                .newDescriptor(this.securityDataPublishChannelApiV1, RedisOutcomeCollectionUploadingDescriptor.class)
+                .newDescriptor(this.securityDataPublishChannelApiV1, RedisIncomeCollectionLoadingDescriptor.class)
                 .setPriority(1)
                 .init();
         this
-                .newDescriptor(this.derivativeDataPublishChannelApiV1, RedisOutcomeCollectionUploadingDescriptor.class)
+                .newDescriptor(this.derivativeDataPublishChannelApiV1, RedisIncomeCollectionLoadingDescriptor.class)
                 .setPriority(2)
                 .init();
         this
-                .newDescriptor(this.quikSecuritiesChannelApi, RedisOutcomeCollectionUploadingDescriptor.class)
+                .newDescriptor(this.quikSecuritiesChannelApi, RedisIncomeCollectionLoadingDescriptor.class)
                 .setPriority(3)
                 .init();
     }
