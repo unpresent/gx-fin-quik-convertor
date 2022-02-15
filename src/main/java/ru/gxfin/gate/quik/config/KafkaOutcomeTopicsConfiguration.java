@@ -14,13 +14,12 @@ import org.springframework.beans.factory.annotation.Value;
 import ru.gx.core.kafka.load.AbstractKafkaIncomeTopicsConfiguration;
 import ru.gx.core.kafka.load.KafkaIncomeTopicLoadingDescriptor;
 import ru.gx.core.kafka.upload.AbstractKafkaOutcomeTopicsConfiguration;
+import ru.gx.core.kafka.upload.KafkaOutcomeTopicUploadingDescriptor;
 import ru.gx.fin.gate.quik.provider.channels.QuikProviderStreamAllTradesPackageDataPublishChannelApiV1;
 import ru.gx.fin.gate.quik.provider.channels.QuikProviderStreamDealsPackageDataPublishChannelApiV1;
 import ru.gx.fin.gate.quik.provider.channels.QuikProviderStreamOrdersPackageDataPublishChannelApiV1;
 import ru.gx.fin.gate.quik.provider.channels.QuikProviderStreamSecuritiesPackageDataPublishChannelApiV1;
-import ru.gx.fin.md.channels.MdStreamDealDataPublishChannelApiV1;
-import ru.gx.fin.md.channels.MdStreamOrderDataPublishChannelApiV1;
-import ru.gx.fin.md.channels.MdStreamTradeDataPublishChannelApiV1;
+import ru.gx.fin.md.channels.*;
 
 import javax.annotation.PostConstruct;
 import java.time.Duration;
@@ -38,11 +37,23 @@ public class KafkaOutcomeTopicsConfiguration extends AbstractKafkaOutcomeTopicsC
 
     @Getter(PROTECTED)
     @Setter(value = PROTECTED, onMethod_ = @Autowired)
+    private MdStreamErrorTradeDataPublishChannelApiV1 errorTradeDataPublishChannelApiV1;
+
+    @Getter(PROTECTED)
+    @Setter(value = PROTECTED, onMethod_ = @Autowired)
     private MdStreamDealDataPublishChannelApiV1 dealDataPublishChannelApiV1;
 
     @Getter(PROTECTED)
     @Setter(value = PROTECTED, onMethod_ = @Autowired)
+    private MdStreamErrorDealDataPublishChannelApiV1 errorDealDataPublishChannelApiV1;
+
+    @Getter(PROTECTED)
+    @Setter(value = PROTECTED, onMethod_ = @Autowired)
     private MdStreamOrderDataPublishChannelApiV1 orderDataPublishChannelApiV1;
+
+    @Getter(PROTECTED)
+    @Setter(value = PROTECTED, onMethod_ = @Autowired)
+    private MdStreamErrorOrderDataPublishChannelApiV1 errorOrderDataPublishChannelApiV1;
 
     public KafkaOutcomeTopicsConfiguration(@NotNull String configurationName) {
         super(configurationName);
@@ -55,13 +66,22 @@ public class KafkaOutcomeTopicsConfiguration extends AbstractKafkaOutcomeTopicsC
                 .setProducerProperties(producerProperties());
 
         this
-                .newDescriptor(this.orderDataPublishChannelApiV1, KafkaIncomeTopicLoadingDescriptor.class)
+                .newDescriptor(this.orderDataPublishChannelApiV1, KafkaOutcomeTopicUploadingDescriptor.class)
                 .init();
         this
-                .newDescriptor(this.dealDataPublishChannelApiV1, KafkaIncomeTopicLoadingDescriptor.class)
+                .newDescriptor(this.errorOrderDataPublishChannelApiV1, KafkaOutcomeTopicUploadingDescriptor.class)
                 .init();
         this
-                .newDescriptor(this.tradeDataPublishChannelApiV1, KafkaIncomeTopicLoadingDescriptor.class)
+                .newDescriptor(this.dealDataPublishChannelApiV1, KafkaOutcomeTopicUploadingDescriptor.class)
+                .init();
+        this
+                .newDescriptor(this.errorDealDataPublishChannelApiV1, KafkaOutcomeTopicUploadingDescriptor.class)
+                .init();
+        this
+                .newDescriptor(this.tradeDataPublishChannelApiV1, KafkaOutcomeTopicUploadingDescriptor.class)
+                .init();
+        this
+                .newDescriptor(this.errorTradeDataPublishChannelApiV1, KafkaOutcomeTopicUploadingDescriptor.class)
                 .init();
     }
 

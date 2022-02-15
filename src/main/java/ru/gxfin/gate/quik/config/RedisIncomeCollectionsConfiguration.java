@@ -44,7 +44,8 @@ public class RedisIncomeCollectionsConfiguration extends AbstractRedisIncomeColl
     public void init() {
         this.getDescriptorsDefaults()
                 .setSortMode(IncomeCollectionSortMode.None)
-                .setProcessType(IncomeDataProcessType.SendToMessagesQueue);
+                // TODO: Подумать. При старте требуется Immediate, во время работы SendToMessagesQueue.
+                .setProcessType(IncomeDataProcessType.Immediate);
 
         this
                 .newDescriptor(this.currencyDataPublishChannelApiV1, RedisIncomeCollectionLoadingDescriptor.class)
@@ -52,15 +53,15 @@ public class RedisIncomeCollectionsConfiguration extends AbstractRedisIncomeColl
                 .init();
         this
                 .newDescriptor(this.securityDataPublishChannelApiV1, RedisIncomeCollectionLoadingDescriptor.class)
-                .setPriority(1)
+                .setPriority(0)
                 .init();
         this
                 .newDescriptor(this.derivativeDataPublishChannelApiV1, RedisIncomeCollectionLoadingDescriptor.class)
-                .setPriority(2)
+                .setPriority(0)
                 .init();
         this
                 .newDescriptor(this.quikSecuritiesChannelApi, RedisIncomeCollectionLoadingDescriptor.class)
-                .setPriority(3)
+                .setPriority(0)
                 .init();
     }
 }

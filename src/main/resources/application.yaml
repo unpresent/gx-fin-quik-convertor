@@ -52,8 +52,11 @@ service:
       derivatives-v1.enabled: true
     md-streams:
       md-trades-v1.enabled: true
+      md-error-trades-v1.enabled: true
       md-orders-v1.enabled: true
+      md-error-orders-v1.enabled: true
       md-deals-v1.enabled: true
+      md-error-deals-v1.enabled: true
 
 # Логирование
 logging:

@@ -8,44 +8,42 @@ import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
+import ru.gx.core.channels.ChannelApiDescriptor;
 import ru.gx.core.channels.ChannelDirection;
+import ru.gx.core.data.DataObject;
 import ru.gx.core.kafka.load.KafkaIncomeTopicsLoader;
 import ru.gx.core.kafka.load.KafkaIncomeTopicsOffsetsController;
 import ru.gx.core.kafka.offsets.TopicsOffsetsController;
 import ru.gx.core.kafka.upload.KafkaOutcomeTopicUploadingDescriptor;
 import ru.gx.core.kafka.upload.KafkaOutcomeTopicsUploader;
 import ru.gx.core.messaging.DefaultMessagesFactory;
+import ru.gx.core.messaging.Message;
 import ru.gx.core.redis.load.RedisIncomeCollectionsLoader;
 import ru.gx.core.simpleworker.SimpleWorker;
 import ru.gx.core.simpleworker.SimpleWorkerOnIterationExecuteEvent;
 import ru.gx.core.simpleworker.SimpleWorkerOnStartingExecuteEvent;
 import ru.gx.core.simpleworker.SimpleWorkerOnStoppingExecuteEvent;
-import ru.gx.fin.common.fics.channels.FicsSnapshotCurrencyDataPublishChannelApiV1;
 import ru.gx.fin.common.fics.messages.FicsSnapshotCurrencyDataPublish;
 import ru.gx.fin.common.fics.messages.FicsSnapshotDerivativeDataPublish;
 import ru.gx.fin.common.fics.messages.FicsSnapshotSecurityDataPublish;
 import ru.gx.fin.common.fics.out.AbstractInstrument;
+import ru.gx.fin.common.fics.out.Currency;
 import ru.gx.fin.gate.quik.provider.messages.QuikProviderSnapshotSecurityDataPublish;
 import ru.gx.fin.gate.quik.provider.messages.QuikProviderStreamAllTradesPackageDataPublish;
 import ru.gx.fin.gate.quik.provider.messages.QuikProviderStreamDealsPackageDataPublish;
 import ru.gx.fin.gate.quik.provider.messages.QuikProviderStreamOrdersPackageDataPublish;
-import ru.gx.fin.gate.quik.provider.out.QuikSecurity;
-import ru.gx.fin.md.channels.MdStreamDealDataPublishChannelApiV1;
-import ru.gx.fin.md.channels.MdStreamOrderDataPublishChannelApiV1;
-import ru.gx.fin.md.channels.MdStreamTradeDataPublishChannelApiV1;
-import ru.gx.fin.md.dto.MdDeal;
-import ru.gx.fin.md.dto.MdOrder;
-import ru.gx.fin.md.dto.MdTrade;
+import ru.gx.fin.gate.quik.provider.out.*;
+import ru.gx.fin.md.channels.*;
+import ru.gx.fin.md.dto.*;
 import ru.gx.fin.md.messages.MdStreamTradeDataPublish;
 import ru.gxfin.gate.quik.config.KafkaIncomeTopicsConfiguration;
 import ru.gxfin.gate.quik.config.KafkaOutcomeTopicsConfiguration;
 import ru.gxfin.gate.quik.config.RedisIncomeCollectionsConfiguration;
 
-import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 import static lombok.AccessLevel.PROTECTED;
 
@@ -105,7 +103,15 @@ public class QuikConverter {
 
     @Getter(PROTECTED)
     @Setter(value = PROTECTED, onMethod_ = @Autowired)
+    private MdStreamErrorTradeDataPublishChannelApiV1 errorTradeDataPublishChannelApiV1;
+
+    @Getter(PROTECTED)
+    @Setter(value = PROTECTED, onMethod_ = @Autowired)
     private MdStreamDealDataPublishChannelApiV1 dealDataPublishChannelApiV1;
+
+    @Getter(PROTECTED)
+    @Setter(value = PROTECTED, onMethod_ = @Autowired)
+    private MdStreamErrorDealDataPublishChannelApiV1 errorDealDataPublishChannelApiV1;
 
     @Getter(PROTECTED)
     @Setter(value = PROTECTED, onMethod_ = @Autowired)
@@ -113,20 +119,38 @@ public class QuikConverter {
 
     @Getter(PROTECTED)
     @Setter(value = PROTECTED, onMethod_ = @Autowired)
+    private MdStreamErrorOrderDataPublishChannelApiV1 errorOrderDataPublishChannelApiV1;
+
+    @Getter(PROTECTED)
+    @Setter(value = PROTECTED, onMethod_ = @Autowired)
     private DefaultMessagesFactory messagesFactory;
 
+    /**
+     * Наполняется из потока QuikProviderSnapshotSecurityDataPublish
+     */
     private final Map<String, QuikSecurity> quikInstrumentsIndex = new HashMap<>();
+
+    /**
+     * Наполняется из потоков:<br/>
+     * - FicsSnapshotCurrencyDataPublish<br/>
+     * - FicsSnapshotSecurityDataPublish<br/>
+     * - FicsSnapshotDerivativeDataPublish<br/>
+     */
     private final Map<String, AbstractInstrument> instrumentsIndex = new HashMap<>();
+
+    /**
+     * Наполняется из потока:<br/>
+     * - FicsSnapshotCurrencyDataPublish
+     */
+    private final Map<String, Currency> currenciesIndex = new HashMap<>();
     // </editor-fold>
     // -----------------------------------------------------------------------------------------------------------------
     // <editor-fold desc="Initialization">
-
     public QuikConverter(@NotNull final String serviceName, @NotNull final String providerCode) {
         super();
         this.serviceName = serviceName;
         this.providerCode = providerCode;
     }
-
     // </editor-fold>
     // -----------------------------------------------------------------------------------------------------------------
     // <editor-fold desc="Обработка событий Worker-а">
@@ -143,6 +167,9 @@ public class QuikConverter {
 
         // Загрузка начальных данных из Redis
         loadRedisStartingData();
+
+        // TODO: Надо убедиться, что справочники наполнились (все сообщения из Redis-а обработались).
+        // Пока сделал Immediate при обработке сообщений из Redis-а.
 
         // Устанавливаем начальные смещения в Kafka
         initKafkaStartingOffsets();
@@ -238,6 +265,20 @@ public class QuikConverter {
     // -----------------------------------------------------------------------------------------------------------------
     // <editor-fold desc="Обработка событий о чтении данных">
 
+    protected void internalUploadObjects(
+            @NotNull final List<? extends DataObject> dataObjects,
+            @NotNull final ChannelApiDescriptor<? extends Message<?, ?>> channelApiDescriptor
+    ) throws Exception {
+        if (dataObjects.size() <= 0) {
+            return;
+        }
+        final var outDescriptor = (KafkaOutcomeTopicUploadingDescriptor<Message<?, ?>>)
+                this.kafkaOutcomeTopicsConfiguration
+                        .get(channelApiDescriptor.getName());
+
+        this.kafkaOutcomeTopicsUploader.uploadObjects(outDescriptor, dataObjects, null);
+    }
+
     /**
      * 1) Получение {@link ru.gx.fin.gate.quik.provider.out.QuikAllTradesPackage}<br/>
      * 2) Конвертирование в список MdTrade,<br/>
@@ -251,30 +292,73 @@ public class QuikConverter {
         log.debug("Starting processQuikAllTradesPackage()");
         try {
             final var resultObjects = new ArrayList<MdTrade>();
-            for (final var sourceObject : message.getBody().getDataPackage().getObjects()) {
-                // TODO: Конвертируем QuikTrade -> MdTrade
+            final var errorObjects = new HashMap<QuikAllTrade, String>();
 
-                //                final var mdTrade = new MdTrade(
-                //                        sourceObject.getExchangeCode(), // -> placeCode
-                //                        sourceObject.getTradeNum(),
-                //                        ...
-                //                );
-                //                result.add(mdTrade);
-            }
-            final var outDescriptor = (KafkaOutcomeTopicUploadingDescriptor<MdStreamTradeDataPublish>)
-                    this.kafkaIncomeTopicsConfiguration
-                            .<MdStreamTradeDataPublish>get(this.tradeDataPublishChannelApiV1.getName());
-
-            for (final var resultObject : resultObjects) {
-                final var resultMessage = (MdStreamTradeDataPublish) this.messagesFactory
-                        .createByDataObject(null, this.tradeDataPublishChannelApiV1.getMessageType(), this.tradeDataPublishChannelApiV1.getVersion(), resultObject, null);
-                this.kafkaOutcomeTopicsUploader.uploadMessage(outDescriptor, resultMessage, null);
-            }
+            internalProcessQuikAllTradesPackage(message.getBody().getDataPackage(), resultObjects, errorObjects);
+            internalUploadObjects(resultObjects, this.tradeDataPublishChannelApiV1);
+            internalUploadMdErrorsTrades(errorObjects);
         } finally {
             log.debug("Finished processQuikAllTradesPackage()");
         }
     }
-    
+
+    protected void internalProcessQuikAllTradesPackage(QuikAllTradesPackage sourcePackage, List<MdTrade> resultObjects, Map<QuikAllTrade, String> errors) {
+        for (final var sourceObject : sourcePackage.getObjects()) {
+            // TODO: Конвертируем QuikTrade -> MdTrade
+            final var secId = sourceObject.getSecCode() + ":" + sourceObject.getClassCode();
+            final var instrument = this.instrumentsIndex.get(sourceObject.getSecCode());
+            final var quikInstrument = this.quikInstrumentsIndex.get(secId);
+            final var currencyCode = QuikConverterUtils.getCurrencyCodeByQuikSecurity(quikInstrument);
+
+            if (instrument == null) {
+                errors.put(sourceObject, "Not found instrument by SecCode = " + sourceObject.getSecCode());
+                continue;
+            }
+            if (currencyCode == null) {
+                errors.put(sourceObject, "Not found currency for SecCode = " + sourceObject.getSecCode());
+                continue;
+            }
+
+            final var mdTrade = new MdTrade(
+                    sourceObject.getExchangeCode(), // -> placeCode
+                    sourceObject.getTradeNum(),
+                    QuikConverterUtils.getDealDirection(sourceObject.getDirection()),
+                    sourceObject.getTradeDateTime(),
+                    instrument.getGuid(),
+                    currencyCode,
+                    sourceObject.getPrice(),
+                    sourceObject.getQuantity(),
+                    sourceObject.getValue(),
+                    sourceObject.getAccruedInterest(),
+                    sourceObject.getYield(),
+                    sourceObject.getRepoRate(),
+                    sourceObject.getRepoValue(),
+                    sourceObject.getRepo2Value(),
+                    sourceObject.getRepoTerm(),
+                    sourceObject.getPeriod(),
+                    sourceObject.getOpenInterest()
+            );
+            resultObjects.add(mdTrade);
+        }
+    }
+
+    protected void internalUploadMdErrorsTrades(Map<QuikAllTrade, String> errors) throws Exception {
+        final var objects = new ArrayList<MdErrorTrade>();
+        if (errors.size() > 0) {
+            for (final var errorObjectEntry : errors.entrySet()) {
+                final var errorTrade = new MdErrorTrade(
+                        errorObjectEntry.getKey().getExchangeCode(),
+                        errorObjectEntry.getKey().getTradeNum(),
+                        errorObjectEntry.getKey().getTradeDateTime(),
+                        errorObjectEntry.getValue()
+                );
+                objects.add(errorTrade);
+            }
+
+            internalUploadObjects(objects, this.errorTradeDataPublishChannelApiV1);
+        }
+    }
+
     /**
      * 1) Получение {@link ru.gx.fin.gate.quik.provider.out.QuikOrdersPackage}<br/>
      * 2) Конвертирование в список MdTrade,<br/>
@@ -288,27 +372,66 @@ public class QuikConverter {
         log.debug("Starting processQuikOrdersPackage()");
         try {
             final var resultObjects = new ArrayList<MdOrder>();
-            for (final var sourceObject : message.getBody().getDataPackage().getObjects()) {
-                // TODO: Конвертируем QuikTrade -> MdTrade
+            final var errorObjects = new HashMap<QuikOrder, String>();
 
-                //                final var mdOrder = new MdOrder(
-                //                        sourceObject.getExchangeCode(), // -> placeCode
-                //                        sourceObject.getOrderNum(),
-                //                        ...
-                //                );
-                //                result.add(mdTrade);
-            }
-            final var outDescriptor = (KafkaOutcomeTopicUploadingDescriptor<MdStreamTradeDataPublish>)
-                    this.kafkaIncomeTopicsConfiguration
-                            .<MdStreamTradeDataPublish>get(this.tradeDataPublishChannelApiV1.getName());
-
-            for (final var resultObject : resultObjects) {
-                final var resultMessage = (MdStreamTradeDataPublish) this.messagesFactory
-                        .createByDataObject(null, this.tradeDataPublishChannelApiV1.getMessageType(), this.tradeDataPublishChannelApiV1.getVersion(), resultObject, null);
-                this.kafkaOutcomeTopicsUploader.uploadMessage(outDescriptor, resultMessage, null);
-            }
+            internalProcessQuikOrdersPackage(message.getBody().getDataPackage(), resultObjects, errorObjects);
+            internalUploadObjects(resultObjects, this.orderDataPublishChannelApiV1);
+            internalUploadMdErrorsOrders(errorObjects);
         } finally {
             log.debug("Finished processQuikOrdersPackage()");
+        }
+    }
+
+    protected void internalProcessQuikOrdersPackage(QuikOrdersPackage sourcePackage, List<MdOrder> resultObjects, Map<QuikOrder, String> errors) {
+        for (final var sourceObject : sourcePackage.getObjects()) {
+            // TODO: Конвертируем QuikTrade -> MdTrade
+            final var secId = sourceObject.getSecCode() + ":" + sourceObject.getClassCode();
+            final var instrument = this.instrumentsIndex.get(sourceObject.getSecCode());
+            final var quikInstrument = this.quikInstrumentsIndex.get(secId);
+            final var currencyCode = QuikConverterUtils.getCurrencyCodeByQuikSecurity(quikInstrument);
+
+            if (instrument == null) {
+                errors.put(sourceObject, "Not found instrument by SecCode = " + sourceObject.getSecCode());
+                continue;
+            }
+            if (currencyCode == null) {
+                errors.put(sourceObject, "Not found currency for SecCode = " + sourceObject.getSecCode());
+                continue;
+            }
+
+            final var mdOrder = new MdOrder(
+                    sourceObject.getExchangeCode(), // -> placeCode
+                    sourceObject.getOrderNum(),
+                    QuikConverterUtils.getDealDirection(sourceObject.getDirection()),
+                    sourceObject.getTradeDateTime(),
+                    instrument.getGuid(),
+                    currencyCode,
+                    sourceObject.getPrice(),
+                    sourceObject.getQuantity(),
+                    sourceObject.getValue(),
+                    sourceObject.getAccruedInterest(),
+                    sourceObject.getYield(),
+                    sourceObject.getRepoValue(),
+                    sourceObject.getRepo2Value(),
+                    sourceObject.getRepoTerm()
+            );
+            resultObjects.add(mdOrder);
+        }
+    }
+
+    protected void internalUploadMdErrorsOrders(Map<QuikOrder, String> errors) throws Exception {
+        final var objects = new ArrayList<MdErrorOrder>();
+        if (errors.size() > 0) {
+            for (final var errorObjectEntry : errors.entrySet()) {
+                final var errorOrder = new MdErrorOrder(
+                        errorObjectEntry.getKey().getExchangeCode(),
+                        errorObjectEntry.getKey().getOrderNum(),
+                        errorObjectEntry.getValue()
+                );
+                objects.add(errorOrder);
+            }
+
+            internalUploadObjects(objects, this.errorOrderDataPublishChannelApiV1);
         }
     }
 
@@ -325,27 +448,70 @@ public class QuikConverter {
         log.debug("Starting processQuikDealsPackage()");
         try {
             final var resultObjects = new ArrayList<MdDeal>();
-            for (final var sourceObject : message.getBody().getDataPackage().getObjects()) {
-                // TODO: Конвертируем QuikTrade -> MdTrade
+            final var errorObjects = new HashMap<QuikDeal, String>();
 
-                //                final var mdDeal = new mdDeal(
-                //                        sourceObject.getExchangeCode(), // -> placeCode
-                //                        sourceObject.getTradeNum(),
-                //                        ...
-                //                );
-                //                result.add(mdTrade);
-            }
-            final var outDescriptor = (KafkaOutcomeTopicUploadingDescriptor<MdStreamTradeDataPublish>)
-                    this.kafkaIncomeTopicsConfiguration
-                            .<MdStreamTradeDataPublish>get(this.tradeDataPublishChannelApiV1.getName());
-
-            for (final var resultObject : resultObjects) {
-                final var resultMessage = (MdStreamTradeDataPublish) this.messagesFactory
-                        .createByDataObject(null, this.tradeDataPublishChannelApiV1.getMessageType(), this.tradeDataPublishChannelApiV1.getVersion(), resultObject, null);
-                this.kafkaOutcomeTopicsUploader.uploadMessage(outDescriptor, resultMessage, null);
-            }
+            internalProcessQuikDealsPackage(message.getBody().getDataPackage(), resultObjects, errorObjects);
+            internalUploadObjects(resultObjects, this.orderDataPublishChannelApiV1);
+            internalUploadMdErrorsDeals(errorObjects);
         } finally {
             log.debug("Finished processQuikDealsPackage()");
+        }
+    }
+
+    protected void internalProcessQuikDealsPackage(QuikDealsPackage sourcePackage, List<MdDeal> resultObjects, Map<QuikDeal, String> errors) {
+        for (final var sourceObject : sourcePackage.getObjects()) {
+            // TODO: Конвертируем QuikDeal -> MdDeal
+            final var secId = sourceObject.getSecCode() + ":" + sourceObject.getClassCode();
+            final var instrument = this.instrumentsIndex.get(sourceObject.getSecCode());
+            final var quikInstrument = this.quikInstrumentsIndex.get(secId);
+            final var currencyCode = QuikConverterUtils.getCurrencyCodeByQuikSecurity(quikInstrument);
+
+            if (instrument == null) {
+                errors.put(sourceObject, "Not found instrument by SecCode = " + sourceObject.getSecCode());
+                continue;
+            }
+            if (currencyCode == null) {
+                errors.put(sourceObject, "Not found currency for SecCode = " + sourceObject.getSecCode());
+                continue;
+            }
+
+            final var mdDeal = new MdDeal(
+                    sourceObject.getExchangeCode(), // -> placeCode
+                    sourceObject.getTradeNum(),
+                    sourceObject.getOrderNum(),
+                    QuikConverterUtils.getDealDirection(sourceObject.getDirection()),
+                    sourceObject.getTradeDateTime(),
+                    instrument.getGuid(),
+                    currencyCode,
+                    sourceObject.getPrice(),
+                    sourceObject.getQuantity(),
+                    sourceObject.getValue(),
+                    sourceObject.getAccruedInterest(),
+                    sourceObject.getYield(),
+                    sourceObject.getRepoRate(),
+                    sourceObject.getRepoValue(),
+                    sourceObject.getRepo2Value(),
+                    sourceObject.getRepoTerm(),
+                    sourceObject.getPeriod()
+            );
+            resultObjects.add(mdDeal);
+        }
+    }
+
+    protected void internalUploadMdErrorsDeals(Map<QuikDeal, String> errors) throws Exception {
+        final var objects = new ArrayList<MdErrorDeal>();
+        if (errors.size() > 0) {
+            for (final var errorObjectEntry : errors.entrySet()) {
+                final var errorDeal = new MdErrorDeal(
+                        errorObjectEntry.getKey().getExchangeCode(),
+                        errorObjectEntry.getKey().getTradeNum(),
+                        errorObjectEntry.getKey().getTradeDateTime(),
+                        errorObjectEntry.getValue()
+                );
+                objects.add(errorDeal);
+            }
+
+            internalUploadObjects(objects, this.errorDealDataPublishChannelApiV1);
         }
     }
 
@@ -361,11 +527,8 @@ public class QuikConverter {
         log.debug("Starting processFicsCurrency()");
         try {
             final var sourceObject = message.getBody().getDataObject();
-            sourceObject.getCodes()
-                    .stream()
-                    .filter(c -> this.providerCode.equals(c.getProvider()))
-                    .findFirst()
-                    .ifPresent(instrumentCode -> this.instrumentsIndex.put(instrumentCode.getCode(), sourceObject));
+            this.currenciesIndex.put(sourceObject.getCodeAlpha3(), sourceObject);
+            this.instrumentsIndex.put(sourceObject.getCodeAlpha3(), sourceObject);
         } finally {
             log.debug("Finished processFicsCurrency()");
         }
@@ -386,8 +549,7 @@ public class QuikConverter {
             sourceObject.getCodes()
                     .stream()
                     .filter(c -> this.providerCode.equals(c.getProvider()))
-                    .findFirst()
-                    .ifPresent(instrumentCode -> this.instrumentsIndex.put(instrumentCode.getCode(), sourceObject));
+                    .forEach(instrumentCode -> this.instrumentsIndex.put(instrumentCode.getCode(), sourceObject));
         } finally {
             log.debug("Finished processFicsSecurity()");
         }
@@ -408,12 +570,12 @@ public class QuikConverter {
             sourceObject.getCodes()
                     .stream()
                     .filter(c -> this.providerCode.equals(c.getProvider()))
-                    .findFirst()
-                    .ifPresent(instrumentCode -> this.instrumentsIndex.put(instrumentCode.getCode(), sourceObject));
+                    .forEach(instrumentCode -> this.instrumentsIndex.put(instrumentCode.getCode(), sourceObject));
         } finally {
             log.debug("Finished processFicsDerivative()");
         }
     }
+
     /**
      * 1) Получение {@link QuikSecurity}<br/>
      * 2) Сохранение в памяти для дальнейшего использования при обработке потоковых данных.<br/>
@@ -426,8 +588,10 @@ public class QuikConverter {
         log.debug("Starting processSnapshotQuikSecurity()");
         try {
             final var sourceObject = message.getBody().getDataObject();
-            // TODO: Организация данных в памяти.
-            this.quikInstrumentsIndex.put(sourceObject.getId(), sourceObject);
+            final var inMemObject = this.quikInstrumentsIndex.get(sourceObject.getId());
+            if (inMemObject == null || inMemObject.getActualDate().isBefore(sourceObject.getActualDate())) {
+                this.quikInstrumentsIndex.put(sourceObject.getId(), sourceObject);
+            }
         } finally {
             log.debug("Finished processSnapshotQuikSecurity()");
         }

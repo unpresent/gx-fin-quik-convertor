@@ -25,7 +25,7 @@ public class CommonConfig {
     // -----------------------------------------------------------------------------------------------------------------
     // <editor-fold desc="DbAdapter & Settings">
     @Bean
-    protected QuikConverter dbAdapter(
+    protected QuikConverter quikConverter(
             @Value("${service.name}") @NotNull final String serviceName,
             @Value("${service.provider-code}") @NotNull final String providerCode
     ) {

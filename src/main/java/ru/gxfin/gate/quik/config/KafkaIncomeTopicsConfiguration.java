@@ -7,7 +7,9 @@ import org.apache.kafka.common.serialization.LongDeserializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.jetbrains.annotations.NotNull;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import ru.gx.core.channels.IncomeDataProcessType;
 import ru.gx.core.kafka.load.AbstractKafkaIncomeTopicsConfiguration;
 import ru.gx.core.kafka.load.KafkaIncomeTopicLoadingDescriptor;
 import ru.gx.fin.gate.quik.provider.channels.QuikProviderStreamAllTradesPackageDataPublishChannelApiV1;
@@ -30,6 +32,7 @@ public class KafkaIncomeTopicsConfiguration extends AbstractKafkaIncomeTopicsCon
 
     @Getter(PROTECTED)
     @Setter(value = PROTECTED, onMethod_ = @Autowired)
+    @Qualifier()
     private QuikProviderStreamAllTradesPackageDataPublishChannelApiV1 allTradesChannelApi;
 
     @Getter(PROTECTED)
@@ -54,7 +57,8 @@ public class KafkaIncomeTopicsConfiguration extends AbstractKafkaIncomeTopicsCon
         this.getDescriptorsDefaults()
                 .setDurationOnPoll(Duration.ofMillis(25))
                 .setPartitions(0)
-                .setConsumerProperties(consumerProperties());
+                .setConsumerProperties(consumerProperties())
+                .setProcessType(IncomeDataProcessType.SendToMessagesQueue);
 
         this
                 .newDescriptor(this.ordersChannelApi, KafkaIncomeTopicLoadingDescriptor.class)
